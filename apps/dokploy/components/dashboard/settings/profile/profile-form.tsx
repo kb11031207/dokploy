@@ -31,8 +31,14 @@ import { z } from "zod";
 import { Disable2FA } from "./disable-2fa";
 import { Enable2FA } from "./enable-2fa";
 
-const profileSchema = z.object({
-	email: z.string(),
+export const profileSchema = z.object({
+	name: z.string().optional(),
+	// Require a non-empty, properly formatted email address. Provide
+	// user-friendly messages for empty and invalid formats.
+	email: z
+		.string()
+		.min(1, { message: "Email is required" })
+		.email({ message: "Please enter a valid email address" }),
 	password: z.string().nullable(),
 	currentPassword: z.string().nullable(),
 	image: z.string().optional(),
@@ -79,6 +85,7 @@ export const ProfileForm = () => {
 
 	const form = useForm<Profile>({
 		defaultValues: {
+			name: data?.user?.name || "",
 			email: data?.user?.email || "",
 			password: "",
 			image: data?.user?.image || "",
@@ -92,6 +99,7 @@ export const ProfileForm = () => {
 		if (data) {
 			form.reset(
 				{
+					name: data?.user?.name || "",
 					email: data?.user?.email || "",
 					password: form.getValues("password") || "",
 					image: data?.user?.image || "",
@@ -104,16 +112,23 @@ export const ProfileForm = () => {
 			);
 			form.setValue("allowImpersonation", data?.user?.allowImpersonation);
 
-			if (data.user.email) {
-				generateSHA256Hash(data.user.email).then((hash) => {
-					setGravatarHash(hash);
+		if (data.user.email) {
+			generateSHA256Hash(data.user.email)
+				.then((hash) => {
+					if (hash) {
+						setGravatarHash(hash);
+					}
+				})
+				.catch((error) => {
+					console.error("Failed to generate gravatar hash:", error);
 				});
-			}
+		}
 		}
 	}, [form, data]);
 
 	const onSubmit = async (values: Profile) => {
 		await mutateAsync({
+			name: values.name,
 			email: values.email.toLowerCase(),
 			password: values.password || undefined,
 			image: values.image,
@@ -124,6 +139,7 @@ export const ProfileForm = () => {
 				await refetch();
 				toast.success("Profile Updated");
 				form.reset({
+					name: values.name,
 					email: values.email,
 					password: "",
 					image: values.image,
@@ -167,6 +183,22 @@ export const ProfileForm = () => {
 										className="grid gap-4"
 									>
 										<div className="space-y-4">
+											<FormField
+												control={form.control}
+												name="name"
+												render={({ field }) => (
+													<FormItem>
+														<FormLabel>{t("settings.profile.name")}</FormLabel>
+														<FormControl>
+															<Input
+																placeholder={t("settings.profile.name")}
+																{...field}
+															/>
+														</FormControl>
+														<FormMessage />
+													</FormItem>
+												)}
+											/>
 											<FormField
 												control={form.control}
 												name="email"
