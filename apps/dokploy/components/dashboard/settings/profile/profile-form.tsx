@@ -22,9 +22,9 @@ import { Switch } from "@/components/ui/switch";
 import { generateSHA256Hash } from "@/lib/utils";
 import { api } from "@/utils/api";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, User } from "lucide-react";
+import { Loader2, Upload, User, X } from "lucide-react";
 import { useTranslation } from "next-i18next";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -69,6 +69,95 @@ export const ProfileForm = () => {
 	} = api.user.update.useMutation();
 	const { t } = useTranslation("settings");
 	const [gravatarHash, setGravatarHash] = useState<string | null>(null);
+	const [uploadedImagePreview, setUploadedImagePreview] = useState<string | null>(null);
+	const [isUploading, setIsUploading] = useState(false);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	const validateImage = (base64String: string): Promise<boolean> => {
+		return new Promise((resolve) => {
+			const img = new Image();
+			img.onload = () => resolve(true);
+			img.onerror = () => resolve(false);
+			img.src = base64String;
+		});
+	};
+
+	const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+		const file = event.target.files?.[0];
+		if (!file) return;
+
+		// Prevent concurrent uploads
+		if (isUploading) {
+			toast.error("Please wait for the current upload to complete");
+			return;
+		}
+
+		// Validate file type
+		if (!file.type.startsWith("image/")) {
+			toast.error("Please select an image file");
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+			return;
+		}
+
+		// Validate file size (2MB = 2 * 1024 * 1024 bytes)
+		const maxSize = 2 * 1024 * 1024;
+		if (file.size > maxSize) {
+			toast.error("Image size must be less than 2MB");
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+			return;
+		}
+
+		setIsUploading(true);
+
+		// Convert to base64 data URL
+		const reader = new FileReader();
+		reader.onloadend = async () => {
+			try {
+				const base64String = reader.result as string;
+				
+				// Validate that the image can actually load
+				const isValidImage = await validateImage(base64String);
+				if (!isValidImage) {
+					toast.error("Invalid or corrupted image file");
+					setIsUploading(false);
+					if (fileInputRef.current) {
+						fileInputRef.current.value = "";
+					}
+					return;
+				}
+
+				setUploadedImagePreview(base64String);
+				form.setValue("image", base64String);
+				setIsUploading(false);
+			} catch (error) {
+				toast.error("Error processing image file");
+				setIsUploading(false);
+				if (fileInputRef.current) {
+					fileInputRef.current.value = "";
+				}
+			}
+		};
+		reader.onerror = () => {
+			toast.error("Error reading image file");
+			setIsUploading(false);
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+		};
+		reader.readAsDataURL(file);
+	};
+
+	const handleRemoveUploadedImage = () => {
+		setUploadedImagePreview(null);
+		form.setValue("image", "");
+		if (fileInputRef.current) {
+			fileInputRef.current.value = "";
+		}
+	};
 
 	const availableAvatars = useMemo(() => {
 		if (gravatarHash === null) return randomImages;
@@ -90,11 +179,22 @@ export const ProfileForm = () => {
 
 	useEffect(() => {
 		if (data) {
+			const currentImage = data?.user?.image || "";
+			
+			// Check if the current image is a base64 data URL (uploaded image)
+			const isBase64Image = currentImage?.startsWith("data:image/");
+			
+			if (isBase64Image) {
+				setUploadedImagePreview(currentImage);
+			} else {
+				setUploadedImagePreview(null);
+			}
+
 			form.reset(
 				{
 					email: data?.user?.email || "",
 					password: form.getValues("password") || "",
-					image: data?.user?.image || "",
+					image: currentImage,
 					currentPassword: form.getValues("currentPassword") || "",
 					allowImpersonation: data?.user?.allowImpersonation,
 				},
@@ -231,34 +331,118 @@ export const ProfileForm = () => {
 															{t("settings.profile.avatar")}
 														</FormLabel>
 														<FormControl>
-															<RadioGroup
-																onValueChange={(e) => {
-																	field.onChange(e);
-																}}
-																defaultValue={field.value}
-																value={field.value}
-																className="flex flex-row flex-wrap gap-2 max-xl:justify-center"
-															>
-																{availableAvatars.map((image) => (
-																	<FormItem key={image}>
-																		<FormLabel className="[&:has([data-state=checked])>img]:border-primary [&:has([data-state=checked])>img]:border-1 [&:has([data-state=checked])>img]:p-px cursor-pointer">
-																			<FormControl>
-																				<RadioGroupItem
-																					value={image}
-																					className="sr-only"
-																				/>
-																			</FormControl>
+															<div className="flex flex-row flex-wrap gap-2 max-xl:justify-center">
+																<input
+																	ref={fileInputRef}
+																	type="file"
+																	accept="image/*"
+																	onChange={handleImageUpload}
+																	disabled={isUploading}
+																	className="hidden"
+																/>
+																<RadioGroup
+																	onValueChange={(e) => {
+																		field.onChange(e);
+																		// Clear uploaded image when selecting a predefined avatar
+																		if (!e.startsWith("data:image/")) {
+																			setUploadedImagePreview(null);
+																			if (fileInputRef.current) {
+																				fileInputRef.current.value = "";
+																			}
+																		}
+																	}}
+																	defaultValue={field.value}
+																	value={field.value}
+																	className="flex flex-row flex-wrap gap-2 max-xl:justify-center"
+																>
+																	{/* Upload button / Uploaded image preview */}
+																	{uploadedImagePreview ? (
+																		<FormItem>
+																			<FormLabel className="[&:has([data-state=checked])>img]:border-primary [&:has([data-state=checked])>img]:border-1 [&:has([data-state=checked])>img]:p-px cursor-pointer">
+																				<FormControl>
+																					<RadioGroupItem
+																						value={uploadedImagePreview}
+																						className="sr-only"
+																					/>
+																				</FormControl>
+																				<div
+																					onClick={() => {
+																						if (!isUploading) {
+																							fileInputRef.current?.click();
+																						}
+																					}}
+																					className={`relative group ${
+																						isUploading ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+																					}`}
+																				>
+																					<img
+																						src={uploadedImagePreview}
+																						alt="Uploaded avatar"
+																						className="h-12 w-12 rounded-full border object-cover hover:p-px hover:border-primary transition-transform"
+																					/>
+																					{!isUploading && (
+																						<button
+																							type="button"
+																							onClick={(e) => {
+																								e.stopPropagation();
+																								handleRemoveUploadedImage();
+																							}}
+																							className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/90"
+																							aria-label="Remove uploaded image"
+																						>
+																							<X className="h-3 w-3" />
+																						</button>
+																					)}
+																				</div>
+																			</FormLabel>
+																		</FormItem>
+																	) : (
+																		<FormItem>
+																			<FormLabel className="cursor-pointer">
+																				<div
+																					onClick={() => {
+																						if (!isUploading) {
+																							fileInputRef.current?.click();
+																						}
+																					}}
+																					className={`h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/50 transition-colors flex items-center justify-center bg-muted/50 ${
+																						isUploading
+																							? "opacity-50 cursor-not-allowed"
+																							: "hover:border-primary hover:bg-muted cursor-pointer"
+																					}`}
+																				>
+																					{isUploading ? (
+																						<Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+																					) : (
+																						<Upload className="h-5 w-5 text-muted-foreground" />
+																					)}
+																				</div>
+																			</FormLabel>
+																		</FormItem>
+																	)}
 
-																			<img
-																				key={image}
-																				src={image}
-																				alt="avatar"
-																				className="h-12 w-12 rounded-full border hover:p-px hover:border-primary transition-transform"
-																			/>
-																		</FormLabel>
-																	</FormItem>
-																))}
-															</RadioGroup>
+																	{/* Predefined avatars */}
+																	{availableAvatars.map((image) => (
+																		<FormItem key={image}>
+																			<FormLabel className="[&:has([data-state=checked])>img]:border-primary [&:has([data-state=checked])>img]:border-1 [&:has([data-state=checked])>img]:p-px cursor-pointer">
+																				<FormControl>
+																					<RadioGroupItem
+																						value={image}
+																						className="sr-only"
+																					/>
+																				</FormControl>
+
+																				<img
+																					key={image}
+																					src={image}
+																					alt="avatar"
+																					className="h-12 w-12 rounded-full border hover:p-px hover:border-primary transition-transform"
+																				/>
+																			</FormLabel>
+																		</FormItem>
+																	))}
+																</RadioGroup>
+															</div>
 														</FormControl>
 														<FormMessage />
 													</FormItem>
