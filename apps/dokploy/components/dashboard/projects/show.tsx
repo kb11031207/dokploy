@@ -43,8 +43,9 @@ import {
 	TrashIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useSearchInputShortcut } from "@/utils/hooks/use-search-input-shortcut";
 import { HandleProject } from "./handle-project";
 import { ProjectEnvironment } from "./project-environment";
 
@@ -54,6 +55,9 @@ export const ShowProjects = () => {
 	const { data: auth } = api.user.get.useQuery();
 	const { mutateAsync } = api.project.remove.useMutation();
 	const [searchQuery, setSearchQuery] = useState("");
+	const searchInputRef = useRef<HTMLInputElement>(null);
+
+	useSearchInputShortcut(searchInputRef);
 
 	const filteredProjects = useMemo(() => {
 		if (!data) return [];
@@ -100,6 +104,7 @@ export const ShowProjects = () => {
 								<>
 									<div className="w-full relative">
 										<Input
+											ref={searchInputRef}
 											placeholder="Filter projects..."
 											value={searchQuery}
 											onChange={(e) => setSearchQuery(e.target.value)}

@@ -112,7 +112,7 @@ export const ShowExternalMariadbCredentials = ({ mariadbId }: Props) => {
 							<AlertBlock type="warning">
 								You need to set an IP address in your{" "}
 								<Link
-									href={data?.serverId ? "/dashboard/settings/servers" : "/dashboard/settings/server"}
+									href="/dashboard/settings/server"
 									className="text-primary"
 								>
 									{data?.serverId
